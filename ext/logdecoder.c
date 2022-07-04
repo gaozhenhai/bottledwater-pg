@@ -25,6 +25,9 @@ typedef struct {
     avro_value_t frame_value;
     schema_cache_t schema_cache;
     error_policy_t error_policy;
+    char table_conf_flag;   /* '+' represents permission.'-' represents prohibition */
+    int table_conf_num;
+    char **table_conf_list;
 } plugin_state;
 
 void reset_frame(plugin_state *state);
@@ -46,14 +49,17 @@ void _PG_output_plugin_init(OutputPluginCallbacks *cb) {
 static void output_avro_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
         bool is_init) {
     ListCell *option;
-
+    FILE * table_conf = NULL;
+    char * path = NULL;           /*The path of table_list.conf*/
     plugin_state *state = palloc(sizeof(plugin_state));
     ctx->output_plugin_private = state;
     opt->output_type = OUTPUT_PLUGIN_BINARY_OUTPUT;
 
     state->memctx = AllocSetContextCreate(ctx->context, "Avro decoder context",
             ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
-
+    state->table_conf_flag = '\0';        /* Initialization */
+    state->table_conf_num = 0;        /* Initialization */
+    state->table_conf_list = NULL;    /* Initialization */
     state->frame_schema = schema_for_frame();
     state->frame_iface = avro_generic_class_from_schema(state->frame_schema);
     avro_generic_value_new(state->frame_iface, &state->frame_value);
@@ -71,6 +77,14 @@ static void output_avro_startup(LogicalDecodingContext *ctx, OutputPluginOptions
             } else {
                 state->error_policy = parse_error_policy(strVal(elem->arg));
             }
+        } else if (strcmp(elem->defname, "table_list_path") == 0) {
+            if (elem->arg == NULL) {
+                ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                        errmsg("No value specified for parameter \"%s\"",
+                            elem->defname)));
+            } else {
+                path = strdup(strVal(elem->arg));
+            }
         } else {
             ereport(INFO, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                     errmsg("Parameter \"%s\" = \"%s\" is unknown",
@@ -78,11 +92,47 @@ static void output_avro_startup(LogicalDecodingContext *ctx, OutputPluginOptions
                         elem->arg ? strVal(elem->arg) : "(null)")));
         }
     }
+
+    /* read file "table_list.conf" and make space for state->table_conf_list */
+    table_conf = fopen(path,"rb");        /* open file */
+    if(table_conf != NULL){
+        fscanf(table_conf,"%c",&(state->table_conf_flag));
+        if(state->table_conf_flag == '+' || state->table_conf_flag == '-'){
+            state->table_conf_list = palloc(100 * sizeof(char*));
+            state->table_conf_list[state->table_conf_num] = palloc(100);
+            while(fscanf(table_conf,"%s",state->table_conf_list[state->table_conf_num]) == 1){
+                state->table_conf_num++;
+                state->table_conf_list[state->table_conf_num] = palloc(100);
+            }
+        }else{
+            ereport(LOG,(errmsg("'+' or '-' must be specified in the document 'table_list.conf'.")));
+        }
+        fclose(table_conf);
+    }else{
+        ereport(LOG,(errmsg("logdecoder open file %s failed.",path)));
+    }
+    if(path != NULL){
+        free(path);
+    }
+    /* end read */
 }
 
 static void output_avro_shutdown(LogicalDecodingContext *ctx) {
     plugin_state *state = ctx->output_plugin_private;
     MemoryContextDelete(state->memctx);
+
+    /* free space */
+    if(state->table_conf_list){
+        do{
+            if(state->table_conf_list[state->table_conf_num]){
+                pfree(state->table_conf_list[state->table_conf_num]);
+            }
+            state->table_conf_list[state->table_conf_num] = NULL;
+        }while(state->table_conf_num--);
+        pfree(state->table_conf_list);
+        state->table_conf_list = NULL;
+    }
+    /* end free */
 
     schema_cache_free(state->schema_cache);
     avro_value_decref(&state->frame_value);
@@ -126,10 +176,44 @@ static void output_avro_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN
 static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
         Relation rel, ReorderBufferChange *change) {
     int err = 0;
+    char *relname;
+    char *namespace_name;
+    int i;
+    char space_rel_name[100];
     HeapTuple oldtuple = NULL, newtuple = NULL;
     plugin_state *state = ctx->output_plugin_private;
     MemoryContext oldctx = MemoryContextSwitchTo(state->memctx);
     reset_frame(state);
+
+    /* make up space_rel_name */
+    relname = RelationGetRelationName(rel);
+    namespace_name = get_namespace_name(RelationGetNamespace(rel));
+    if(namespace_name != NULL){
+        sprintf(space_rel_name,"%s.%s",namespace_name,relname);
+        pfree(namespace_name);
+    }else{
+        sprintf(space_rel_name,"%s",relname);
+    }
+    /* end make up space_rel_name */
+
+    /* search table */
+    for(i=0;i < state->table_conf_num;i++){
+        if(strcmp(space_rel_name,state->table_conf_list[i]) == 0){
+            break;
+        }
+    }
+    if(state->table_conf_flag == '+'){
+        /* If space_rel_name is not in table_conf_list,then skip*/
+        if(i == state->table_conf_num){
+            return;
+        }
+    }else if(state->table_conf_flag == '-'){
+        /* If space_rel_name is in table_conf_list,then skip*/
+        if(i < state->table_conf_num){
+            return;
+        }
+    }
+    /* end search */
 
     switch (change->action) {
         case REORDER_BUFFER_CHANGE_INSERT:

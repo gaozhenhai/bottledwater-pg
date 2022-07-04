@@ -509,6 +509,20 @@ Note that Bottled Water has nothing to do with
 [Sparkling Water](https://github.com/h2oai/sparkling-water), a machine learning
 engine for Spark.
 
+Build Environment
+-------
+```
+#export PATH=/root/picc/soft/postgresql-10.5/bin:$PATH
+export PATH=/root/picc/soft/postgresql-14.4/bin:$PATH
+export PKG_CONFIG_PATH=/root/picc/free/jansson/lib/pkgconfig:/root/picc/free/avro/lib/pkgconfig:/root/picc/free/librdkafka/lib/pkgconfig:$PKG_CONFIG_PATH
+export C_INCLUDE_PATH=/root/picc/free/jansson/include:/root/picc/free/avro/include:/root/picc/free/librdkafka/include:/root/picc/soft/postgresql-14.4/include/server
+#export LD_LIBRARY_PATH=/root/picc/soft/postgresql-10.5/lib:/root/picc/free/avro/lib:/usr/lib:/root/picc/free/jansson/lib:/root/picc/free/librdkafka/lib
+export LD_LIBRARY_PATH=/root/picc/soft/postgresql-14.4/lib:/root/picc/free/avro/lib:/usr/lib:/root/picc/free/jansson/lib:/root/picc/free/librdkafka/lib
+#export PGHOME=/root/picc/soft/postgresql-10.5
+export PGHOME=/root/picc/soft/postgresql-14.4
+export PGPORT=5432
+export PGDATA=/data
+```
 
 License
 -------

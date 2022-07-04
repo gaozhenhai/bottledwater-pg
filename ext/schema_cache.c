@@ -26,12 +26,12 @@ schema_cache_t schema_cache_new(MemoryContext context) {
 
 #ifdef HASH_BLOBS
     /* Postgres 9.5 */
-    cache->entries = hash_create("Bottled Water schema cache", 32, &hash_ctl,
+    cache->entries = hash_create("Logical_tool schema cache", 32, &hash_ctl,
             HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 #else
     /* Postgres 9.4 */
     hash_ctl.hash = oid_hash;
-    cache->entries = hash_create("Bottled Water schema cache", 32, &hash_ctl,
+    cache->entries = hash_create("Logical_tool schema cache", 32, &hash_ctl,
             HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 #endif
 

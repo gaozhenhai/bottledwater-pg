@@ -13,7 +13,7 @@
 #include "avro.h"
 
 /* Namespace for Avro records of the frame protocol */
-#define PROTOCOL_SCHEMA_NAMESPACE "com.martinkl.bottledwater.protocol"
+#define PROTOCOL_SCHEMA_NAMESPACE "com.martinkl.logical_tool.protocol"
 
 /* Each message in the wire protocol is of one of these types */
 #define PROTOCOL_MSG_BEGIN_TXN      0
@@ -27,16 +27,16 @@
 /* Error policies, determining what the snapshot function and output plugin
  * should do if they encounter an error encoding a row.
  *
- * These should match the values of the bottledwater_error_policy_valid
- * constraint in bottledwater--0.1.sql.
+ * These should match the values of the Logical_tool_error_policy_valid
+ * constraint in logical_tool--0.1.sql.
  */
 /* The default policy is "exit": an error will terminate the snapshot or
  * replication stream.  This policy should be used if avoiding data loss is the
- * top priority, since after manually resolving the error Bottled Water can be
+ * top priority, since after manually resolving the error Logical_tool can be
  * restarted to retry the affected rows.
  */
 #define PROTOCOL_ERROR_POLICY_EXIT "exit"
-/* Under the "log" policy, an error will cause Bottled Water to skip over the
+/* Under the "log" policy, an error will cause Logical_tool to skip over the
  * affected rows and continue, logging the error that occurred.  This means the
  * snapshot or replication stream may omit some updates that were successfully
  * committed to Postgres, if there was a problem encoding those updates.

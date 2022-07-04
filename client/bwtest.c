@@ -5,12 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEFAULT_REPLICATION_SLOT "bottledwater"
-#define APP_NAME "bottledwater"
+#define DEFAULT_REPLICATION_SLOT "logical_tool"
+#define APP_NAME "logical_tool"
 
 /* The name of the logical decoding output plugin with which the replication
  * slot is created. This must match the name of the Postgres extension. */
-#define OUTPUT_PLUGIN "bottledwater"
+#define OUTPUT_PLUGIN "logical_tool"
 
 #define check(err, call) { err = call; if (err) return err; }
 

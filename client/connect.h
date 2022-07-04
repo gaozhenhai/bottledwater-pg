@@ -8,6 +8,7 @@
 typedef struct {
     char *conninfo, *app_name;
     char *error_policy;
+    char *table_list_path;        /* Pass the parameters of the file table_list.conf for each process */
     PGconn *sql_conn;
     replication_stream repl;
     bool allow_unkeyed;

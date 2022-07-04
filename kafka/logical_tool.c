@@ -11,13 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 
-#define DEFAULT_REPLICATION_SLOT "bottledwater"
-#define APP_NAME "bottledwater"
+#define DEFAULT_REPLICATION_SLOT "logical_tool"
+#define APP_NAME "logical_tool"
 
 /* The name of the logical decoding output plugin with which the replication
  * slot is created. This must match the name of the Postgres extension. */
-#define OUTPUT_PLUGIN "bottledwater"
+#define OUTPUT_PLUGIN "logical_tool"
 
 #define DEFAULT_BROKER_LIST "localhost:9092"
 #define DEFAULT_SCHEMA_REGISTRY "http://localhost:8081"
@@ -59,6 +60,8 @@ typedef enum {
 
 static const char* DEFAULT_OUTPUT_FORMAT_NAME = "avro";
 static const format_t DEFAULT_OUTPUT_FORMAT = OUTPUT_FORMAT_AVRO;
+FILE * LOG_FILE = NULL;
+
 
 
 typedef enum {
@@ -203,6 +206,13 @@ void usage(int exit_status) {
             "                          (see --config-help for list of properties).\n"
             "  -T, --topic-config property=value\n"
             "                          Set topic configuration property for Kafka producer.\n"
+            "  -t, --table_list_path=path\n"
+            "                          Specify a file path for table filtering(default:table_list.conf).\n"
+            "                          In the first line of the file,'+' stands for whitelist,\n"
+            "                          '-' stands for blacklist.\n"
+            "  -L, --detailed_log	   The detailed log is not logged by default because it affects performance. \n"
+            "                          If this parameter is specified, the start time and\n"
+            "                          end time of each message are recorded.\n"
             "  --config-help           Print the list of configuration properties. See also:\n"
             "            https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md\n"
             "  -h, --help\n"
@@ -232,6 +242,8 @@ void parse_options(producer_context_t context, int argc, char **argv) {
         {"skip-snapshot",   no_argument,       NULL, 'x'},
         {"kafka-config",    required_argument, NULL, 'C'},
         {"topic-config",    required_argument, NULL, 'T'},
+        {"table_list_path", required_argument, NULL, 't'},
+        {"detailed_log",    no_argument,       NULL, 'L'},
         {"config-help",     no_argument,       NULL,  1 },
         {"help",            no_argument,       NULL, 'h'},
         {NULL,              0,                 NULL,  0 }
@@ -241,7 +253,7 @@ void parse_options(producer_context_t context, int argc, char **argv) {
 
     int option_index;
     while (true) {
-        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:h", options, &option_index);
+        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:t:Lh", options, &option_index);
         if (c == -1) break;
 
         switch (c) {
@@ -277,6 +289,19 @@ void parse_options(producer_context_t context, int argc, char **argv) {
                 break;
             case 'T':
                 set_topic_config(context, optarg, parse_config_option(optarg));
+                break;
+	     	case 't':
+				if(context->client->table_list_path) {
+                   free(context->client->table_list_path);
+		     	context->client->table_list_path = strdup(optarg);
+		 		}
+                break;
+			case 'L':
+				LOG_FILE = fopen("logical_tool.log","a+");
+				if (LOG_FILE == NULL) {
+					log_error("Open file logical_tool.log failed");
+					exit(1);
+				}
                 break;
             case 1:
                 rd_kafka_conf_properties_show(stderr);
@@ -555,6 +580,15 @@ static int on_client_error(void *_context, int err, const char *message) {
     return handle_error(context, err, "Client error: %s", message);
 }
 
+void get_localtime(char *timestring)
+{
+	char temp[32];
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	strftime(temp, 31, "%Y-%m-%d %H:%M:%S", localtime(&tv.tv_sec));
+	sprintf(timestring, "%s.%03d", temp, (int)(tv.tv_usec / 1000));
+}
 
 int send_kafka_msg(producer_context_t context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len,
@@ -610,7 +644,13 @@ int send_kafka_msg(producer_context_t context, uint64_t wal_pos, Oid relid,
     }
 
     bool enqueued = false;
-    while (!enqueued) {
+	char timestring[32];
+    while (!enqueued) {		
+		if (key != NULL && LOG_FILE != NULL) {
+			get_localtime(timestring);
+			fwrite(key,key_encoded_len,1,LOG_FILE);
+			fprintf(LOG_FILE,"begin:%s ",timestring);
+		}
         int err = rd_kafka_produce(table->topic,
                 RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_FREE,
                 val, val == NULL ? 0 : val_encoded_len,
@@ -652,6 +692,7 @@ static void on_deliver_msg(rd_kafka_t *kafka, const rd_kafka_message_t *msg, voi
     msg_envelope_t envelope = (msg_envelope_t) msg->_private;
 
     int err;
+	char timestring[32];
     if (msg->err) {
         err = handle_error(envelope->context, msg->err,
                 "Message delivery to topic %s failed: %s",
@@ -661,6 +702,11 @@ static void on_deliver_msg(rd_kafka_t *kafka, const rd_kafka_message_t *msg, voi
     } else {
         // Message successfully delivered to Kafka
         err = 0;
+		if (LOG_FILE != NULL) {
+			get_localtime(timestring);
+			fprintf(LOG_FILE,"end:%s\n",timestring);
+			fflush(LOG_FILE);
+		}
     }
 
     if (!err) {
@@ -754,6 +800,7 @@ client_context_t init_client() {
     client->app_name = strdup(APP_NAME);
     db_client_set_error_policy(client, DEFAULT_ERROR_POLICY_NAME);
     client->allow_unkeyed = false;
+    client->table_list_path = strdup("table_list.conf");
     client->repl.slot_name = strdup(DEFAULT_REPLICATION_SLOT);
     client->repl.output_plugin = strdup(OUTPUT_PLUGIN);
     client->repl.frame_reader = frame_reader;
@@ -903,5 +950,8 @@ int main(int argc, char **argv) {
     }
 
     exit_nicely(context, 0);
+	if (LOG_FILE != NULL) {
+		fclose(LOG_FILE);
+	}
     return 0;
 }

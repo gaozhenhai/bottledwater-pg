@@ -113,7 +113,7 @@ table_metadata_t table_mapper_update(table_mapper_t mapper, Oid relid,
      *
      * This might need to end up being a configuration choice.  For now, we
      * choose option b) - we leave the table unregistered (by marking it as
-     * deleted), which means send_kafka_msg in bottledwater.c will fail to look
+     * deleted), which means send_kafka_msg in logical_tool.c will fail to look
      * up the schema and invoke its error handling policy.
      */
     int err;

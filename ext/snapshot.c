@@ -27,7 +27,7 @@ typedef struct {
     char *index_name;
 } export_table;
 
-/* State that we need to remember between calls of bottledwater_export */
+/* State that we need to remember between calls of logical_tool_export */
 typedef struct {
     MemoryContext memcontext;
     export_table *tables;
@@ -41,18 +41,18 @@ typedef struct {
 } export_state;
 
 void print_tupdesc(char *title, TupleDesc tupdesc);
-void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed);
+void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed, char *path);
 void open_next_table(export_state *state);
 void close_current_table(export_state *state);
 bytea *format_snapshot_row(export_state *state);
 bytea *schema_for_relname(char *relname, bool get_key);
 
 
-PG_FUNCTION_INFO_V1(bottledwater_key_schema);
+PG_FUNCTION_INFO_V1(logical_tool_key_schema);
 
 /* Given the name of a table, generates an Avro schema for the key (replica identity)
  * of that table, and returns it as a JSON string. */
-Datum bottledwater_key_schema(PG_FUNCTION_ARGS) {
+Datum logical_tool_key_schema(PG_FUNCTION_ARGS) {
     char *table_name = NameStr(*PG_GETARG_NAME(0));
     bytea *json = schema_for_relname(table_name, true);
     if (!json) {
@@ -62,29 +62,29 @@ Datum bottledwater_key_schema(PG_FUNCTION_ARGS) {
 }
 
 
-PG_FUNCTION_INFO_V1(bottledwater_row_schema);
+PG_FUNCTION_INFO_V1(logical_tool_row_schema);
 
 /* Given the name of a table, generates an Avro schema for the rows of that table,
  * and returns it as a JSON string. */
-Datum bottledwater_row_schema(PG_FUNCTION_ARGS) {
+Datum logical_tool_row_schema(PG_FUNCTION_ARGS) {
     bytea *json = schema_for_relname(NameStr(*PG_GETARG_NAME(0)), false);
     PG_RETURN_TEXT_P(json);
 }
 
 
-PG_FUNCTION_INFO_V1(bottledwater_frame_schema);
+PG_FUNCTION_INFO_V1(logical_tool_frame_schema);
 
 /* Returns a JSON string containing the frame schema of the logical log output plugin.
  * This should be used by clients to decode the data streamed from the log, allowing
  * schema evolution to handle version changes of the plugin. */
-Datum bottledwater_frame_schema(PG_FUNCTION_ARGS) {
+Datum logical_tool_frame_schema(PG_FUNCTION_ARGS) {
     bytea *json;
     avro_schema_t schema = schema_for_frame();
     int err = try_writing(&json, &write_schema_json, schema);
     avro_schema_decref(schema);
 
     if (err) {
-        elog(ERROR, "bottledwater_frame_schema: Could not encode schema as JSON: %s", avro_strerror());
+        elog(ERROR, "logical_tool_frame_schema: Could not encode schema as JSON: %s", avro_strerror());
         PG_RETURN_NULL();
     } else {
         PG_RETURN_TEXT_P(json);
@@ -92,7 +92,7 @@ Datum bottledwater_frame_schema(PG_FUNCTION_ARGS) {
 }
 
 
-PG_FUNCTION_INFO_V1(bottledwater_export);
+PG_FUNCTION_INFO_V1(logical_tool_export);
 
 /* Given a search pattern for tables ('%' matches all tables), returns a set of byte array values.
  * Each byte array is a frame of our wire protocol, containing schemas and/or rows of the selected
@@ -100,13 +100,14 @@ PG_FUNCTION_INFO_V1(bottledwater_export);
  * output, allowing us to stream through large datasets without loading everything into memory.
  *
  * SRF docs: http://www.postgresql.org/docs/9.4/static/xfunc-c.html#XFUNC-C-RETURN-SET */
-Datum bottledwater_export(PG_FUNCTION_ARGS) {
+Datum logical_tool_export(PG_FUNCTION_ARGS) {
     FuncCallContext *funcctx;
     MemoryContext oldcontext;
     export_state *state;
     int ret;
     text *table_pattern;
     bool allow_unkeyed;
+    char *table_list_path = NULL;
     bytea *result;
 
     oldcontext = CurrentMemoryContext;
@@ -118,7 +119,7 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
          * within this function. Note SPI_connect() switches to its own memory context, but we
          * actually want to use multi_call_memory_ctx, so we call SPI_connect() first. */
         if ((ret = SPI_connect()) < 0) {
-            elog(ERROR, "bottledwater_export: SPI_connect returned %d", ret);
+            elog(ERROR, "logical_tool_export: SPI_connect returned %d", ret);
         }
 
         /* Things allocated in this memory context will live until SRF_RETURN_DONE(). */
@@ -127,7 +128,7 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
         state = (export_state *) palloc(sizeof(export_state));
 
         state->memcontext = AllocSetContextCreate(CurrentMemoryContext,
-                                                  "bottledwater_export per-tuple context",
+                                                  "logical_tool_export per-tuple context",
                                                   ALLOCSET_DEFAULT_MINSIZE,
                                                   ALLOCSET_DEFAULT_INITSIZE,
                                                   ALLOCSET_DEFAULT_MAXSIZE);
@@ -142,8 +143,10 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
         table_pattern = PG_GETARG_TEXT_P(0);
         allow_unkeyed = PG_GETARG_BOOL(1);
         state->error_policy = parse_error_policy(TextDatumGetCString(PG_GETARG_TEXT_P(2)));
+	 table_list_path = text_to_cstring(PG_GETARG_TEXT_P(3));
 
-        get_table_list(state, table_pattern, allow_unkeyed);
+        get_table_list(state, table_pattern, allow_unkeyed,table_list_path);
+        pfree(table_list_path);
         if (state->num_tables > 0) open_next_table(state);
     }
 
@@ -196,10 +199,16 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
  * Also takes a shared lock on all the tables we're going to export, to make sure they
  * aren't dropped or schema-altered before we get around to reading them. (Ordinary
  * writes to the table, i.e. insert/update/delete, are not affected.) */
-void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed) {
+void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed, char *path) {
     Oid argtypes[] = { TEXTOID };
     Datum args[] = { PointerGetDatum(table_pattern) };
     StringInfoData errors;
+    FILE * table_conf = NULL;
+    char table_conf_flag = '\0';        /* Initialization */
+    int table_conf_num = 0;        /* Initialization */
+    char ** table_conf_list = NULL;
+    int k = 0;
+    int count = 0;
 
     int ret = SPI_execute_with_args(
             // c is the class of the table (which stores, amongst other things, the table name).
@@ -233,8 +242,28 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
     }
 
     state->tables = palloc0(SPI_processed * sizeof(export_table));
-    state->num_tables = SPI_processed;
+    //state->num_tables = SPI_processed;
     initStringInfo(&errors);
+
+    table_conf = fopen(path,"rb");        /* open file */
+    /* read file "table_list.conf" and make space for table_conf_list */
+    if(table_conf != NULL){
+        fscanf(table_conf,"%c",&table_conf_flag);
+        if(table_conf_flag == '+' || table_conf_flag == '-'){
+            table_conf_list = palloc(100 * sizeof(char*));
+            table_conf_list[table_conf_num] = palloc(100);
+            while(fscanf(table_conf,"%s",table_conf_list[table_conf_num]) == 1){
+                table_conf_num++;
+                table_conf_list[table_conf_num] = palloc(100);
+            }
+        }else{
+            ereport(LOG,(errmsg("'+' or '-' must be specified in the document 'table_list.conf'.")));
+        }
+        fclose(table_conf);
+    }else{
+        ereport(LOG,(errmsg("snapshot open file %s failed.",path)));
+    }
+    /* end read */
 
     for (int i = 0; i < SPI_processed; i++) {
         bool oid_null, namespace_null, relname_null, replident_null, indname_null;
@@ -252,7 +281,26 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
             elog(ERROR, "get_table_list: unexpected null value");
         }
 
-        table = &state->tables[i];
+        /* search table */
+        for(k=0;k < table_conf_num;k++){
+            if(strcmp(quote_qualified_identifier(NameStr(*DatumGetName(namespace_d)),NameStr(*DatumGetName(relname_d))),table_conf_list[k]) == 0){
+                break;
+            }
+        }
+        if(table_conf_flag == '+'){
+            /* If relname is not in table_conf_list,then skip*/
+            if(k == table_conf_num){
+                continue;
+            }
+        }else if(table_conf_flag == '-'){
+            /* If relname is in table_conf_list,then skip*/
+            if(k < table_conf_num){
+                continue;
+            }
+        }
+        /* end search */
+
+        table = &state->tables[count];
         table->relid      = DatumGetObjectId(oid_d);
         table->rel        = relation_open(table->relid, AccessShareLock);
         table->namespace  = pstrdup(NameStr(*DatumGetName(namespace_d)));
@@ -262,7 +310,7 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
         if (!indname_null) {
             table->index_name = pstrdup(NameStr(*DatumGetName(indname_d)));
 
-            elog(INFO, "bottledwater_export: Table %s is keyed by index %s",
+            elog(INFO, "logical_tool_export: Table %s is keyed by index %s",
                     quote_qualified_identifier(table->namespace, table->rel_name), table->index_name);
 
         } else if (table->repl_ident == REPLICA_IDENTITY_NOTHING) {
@@ -273,28 +321,41 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
                     quote_qualified_identifier(table->namespace, table->rel_name));
         }
 
-        for (int j = 0; j < i; j++) {
+        for (int j = 0; j < count; j++) {
             if (table->relid == state->tables[j].relid) {
                 elog(ERROR, "get_table_list: table %s has ambiguous primary key (%s and %s)",
                         table->rel_name, table->index_name, state->tables[j].index_name);
             }
         }
+        count++;
     }
-
+    state->num_tables = count;
     SPI_freetuptable(SPI_tuptable);
 
     if (errors.len > 0) {
         if (allow_unkeyed) {
-            elog(INFO, "bottledwater_export: The following tables will be exported without a key:\n%s",
+            elog(INFO, "logical_tool_export: The following tables will be exported without a key:\n%s",
                     errors.data);
         } else {
-            elog(ERROR, "bottledwater_export: The following tables do not have a replica identity key:\n%s"
+            elog(ERROR, "logical_tool_export: The following tables do not have a replica identity key:\n%s"
                     "\tPlease give them a primary key or set REPLICA IDENTITY USING INDEX.\n"
                     "\tTo ignore this issue, and export them anyway, use --allow-unkeyed\n"
                     "\t(note that export of updates and deletes will then be incomplete).",
                     errors.data);
         }
     }
+    /* free space */
+    if(table_conf_list){
+        do{
+            if(table_conf_list[table_conf_num]){
+                pfree(table_conf_list[table_conf_num]);
+            }
+            table_conf_list[table_conf_num] = NULL;
+        }while(table_conf_num--);
+        pfree(table_conf_list);
+        table_conf_list = NULL;
+    }
+    /* end free */
 }
 
 /* Starts a query to dump all the rows from state->tables[state->current_table].
@@ -310,7 +371,7 @@ void open_next_table(export_state *state) {
 
     plan = SPI_prepare_cursor(query.data, 0, NULL, CURSOR_OPT_NO_SCROLL);
     if (!plan) {
-        elog(ERROR, "bottledwater_export: SPI_prepare_cursor failed with error %d", SPI_result);
+        elog(ERROR, "logical_tool_export: SPI_prepare_cursor failed with error %d", SPI_result);
     }
     state->cursor = SPI_cursor_open(NULL, plan, NULL, NULL, true);
 }
@@ -342,14 +403,14 @@ bytea *format_snapshot_row(export_state *state) {
             SPI_tuptable->tupdesc, SPI_tuptable->vals[0])) {
         elog(INFO, "Failed tuptable: %s", schema_debug_info(table->rel, SPI_tuptable->tupdesc));
         elog(INFO, "Failed relation: %s", schema_debug_info(table->rel, RelationGetDescr(table->rel)));
-        error_policy_handle(state->error_policy, "bottledwater_export: Avro conversion failed", avro_strerror());
+        error_policy_handle(state->error_policy, "logical_tool_export: Avro conversion failed", avro_strerror());
         /* if handling the error didn't exit early, it should be safe to fall
          * through, because we'll just write the frame without the message that
          * failed (so potentially it'll be an empty frame)
          */
     }
     if (try_writing(&output, &write_avro_binary, &state->frame_value)) {
-        error_policy_handle(state->error_policy, "bottledwater_export: writing Avro binary failed", avro_strerror());
+        error_policy_handle(state->error_policy, "logical_tool_export: writing Avro binary failed", avro_strerror());
         /* if we didn't exit early, then output remains uninitialised */
         return NULL;
     }
@@ -374,7 +435,7 @@ bytea *schema_for_relname(char *relname, bool get_key) {
 
     relation_close(rel, AccessShareLock);
     if (err) {
-        elog(ERROR, "bottledwater_table_schema: Could not get schema for relname %s: %s",
+        elog(ERROR, "logical_tool_table_schema: Could not get schema for relname %s: %s",
                 relname, avro_strerror());
     }
     if (!schema) return NULL;
@@ -383,7 +444,7 @@ bytea *schema_for_relname(char *relname, bool get_key) {
     avro_schema_decref(schema);
 
     if (err) {
-        elog(ERROR, "bottledwater_table_schema: Could not encode schema as JSON: %s",
+        elog(ERROR, "logical_tool_table_schema: Could not encode schema as JSON: %s",
                 avro_strerror());
     }
     return json;

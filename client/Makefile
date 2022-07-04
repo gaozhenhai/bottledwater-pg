@@ -1,7 +1,7 @@
 SOURCES=replication.c protocol.c protocol_client.c connect.c
 EXEC_SRC=bwtest.c
 EXECUTABLE=bwtest
-STATICLIB=libbottledwater.a
+STATICLIB=liblogical_tool.a
 
 PG_CFLAGS = -I$(shell pg_config --includedir) -I$(shell pg_config --includedir-server)
 PG_LDFLAGS = -L$(shell pg_config --libdir) -lpq
