@@ -197,7 +197,7 @@ void schema_cache_free(schema_cache_t cache) {
 /* Append debug information about table columns to a string buffer. */
 void tupdesc_debug_info(StringInfo msg, TupleDesc tupdesc) {
     for (int i = 0; i < tupdesc->natts; i++) {
-        Form_pg_attribute attr = tupdesc->attrs[i];
+        Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
         appendStringInfo(msg, "\n\t%4d. attrelid = %u, attname = %s, atttypid = %u, attlen = %d, "
                 "attnum = %d, attndims = %d, atttypmod = %d, attnotnull = %d, "
                 "atthasdef = %d, attisdropped = %d, attcollation = %u",

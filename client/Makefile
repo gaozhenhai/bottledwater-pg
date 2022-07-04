@@ -4,7 +4,7 @@ EXECUTABLE=bwtest
 STATICLIB=liblogical_tool.a
 
 PG_CFLAGS = -I$(shell pg_config --includedir) -I$(shell pg_config --includedir-server)
-PG_LDFLAGS = -L$(shell pg_config --libdir) -lpq
+PG_LDFLAGS = -L$(shell pg_config --libdir) -lpq -lpgport
 AVRO_CFLAGS = $(shell pkg-config --cflags avro-c)
 AVRO_LDFLAGS = $(shell pkg-config --libs avro-c)
 

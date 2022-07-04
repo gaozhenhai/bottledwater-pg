@@ -163,7 +163,7 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out) {
     }
 
     for (int i = 0; i < tupdesc->natts; i++) {
-        Form_pg_attribute attr = tupdesc->attrs[i];
+        Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
         if (attr->attisdropped) continue; /* skip dropped columns */
 
         attname_avro_safe = make_avro_safe(NameStr(attr->attname), false);
@@ -193,7 +193,7 @@ int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
         bool isnull;
         Datum datum;
 
-        Form_pg_attribute attr = tupdesc->attrs[i];
+        Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
         if (attr->attisdropped) continue; /* skip dropped columns */
 
         check(err, avro_value_get_by_index(output_val, field, &field_val, NULL));
@@ -225,7 +225,7 @@ int tuple_to_avro_key(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
     check(err, avro_value_reset(output_val));
 
     for (int field = 0; field < key_index->indkey.dim1; field++) {
-        Form_pg_attribute attr;
+        Form_pg_attribute attr, rel_attr;
         avro_value_t field_val;
         bool isnull;
         Datum datum;
@@ -237,14 +237,16 @@ int tuple_to_avro_key(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
         // are any columns that are dropped in rel_tupdesc but not in tupdesc.
         int tup_i = 0;
         for (int rel_i = 0; rel_i < attnum; rel_i++) {
-            if (!rel_tupdesc->attrs[rel_i]->attisdropped || tupdesc->attrs[tup_i]->attisdropped) tup_i++;
+            attr = TupleDescAttr(tupdesc, tup_i);
+            rel_attr = TupleDescAttr(rel_tupdesc, rel_i);
+            if (!rel_attr->attisdropped || attr->attisdropped) tup_i++;
         }
 
-        if (tup_i >= tupdesc->natts || tupdesc->attrs[tup_i]->attisdropped) {
+        attr = TupleDescAttr(tupdesc, tup_i);
+        if (tup_i >= tupdesc->natts || attr->attisdropped) {
             elog(ERROR, "index refers to non-existent attribute number %d", attnum);
         }
 
-        attr = tupdesc->attrs[tup_i];
         check(err, avro_value_get_by_index(output_val, field, &field_val, NULL));
 
         datum = heap_getattr(tuple, tup_i + 1, tupdesc, &isnull);
