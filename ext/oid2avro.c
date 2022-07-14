@@ -80,7 +80,7 @@ Relation table_key_index(Relation rel) {
         Relation index_rel = relation_open(lfirst_oid(index_oid), AccessShareLock);
         Form_pg_index index = index_rel->rd_index;
 
-        if (IndexIsValid(index) && IndexIsReady(index) && index->indisprimary) {
+        if (index->indisvalid && index->indisready && index->indisprimary) {
             list_free(indexes);
             return index_rel;
         }

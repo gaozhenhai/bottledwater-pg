@@ -5,11 +5,19 @@ ENV RDKAFKA_VERSION=1.9.0 \
     JANSSON=2.9
 
 RUN fetchDeps="pkg-config gcc make cmake llvm-dev \
-        clang curl bzip2 libcurl4-openssl-dev \
-        liblzma-dev libsnappy-dev libz-dev \
+        clang bzip2 liblzma-dev libz-dev \
         libkrb5-dev liblz4-dev libxml2-dev \
         libxslt-dev libedit-dev libssl-dev libpam0g-dev"; \
     apt-get update && apt-get install -y --no-install-recommends ${fetchDeps}
+
+# curl-7.54.0
+#https://curl.haxx.se/download/curl-7.54.0.tar.gz
+COPY build/packages/curl-7.54.0.tar.gz /tmp
+RUN set -x && tar -xzf /tmp/curl-7.54.0.tar.gz -C /tmp && \
+    cd /tmp/curl-7.54.0 && ./configure && make && make install && \
+    cp src/.libs/curl  /usr/local/bin && \
+    tar czf curl-7.54.0.tar.gz /usr/local/include/curl /usr/local/lib/libcurl* /usr/local/bin/curl && \
+    mv curl-7.54.0.tar.gz /
 
 # jansson-2.9
 RUN set -x && curl -o /tmp/jansson-${JANSSON}.tar.bz2 -SL http://www.digip.org/jansson/releases/jansson-${JANSSON}.tar.bz2 && \
@@ -19,11 +27,13 @@ RUN set -x && curl -o /tmp/jansson-${JANSSON}.tar.bz2 -SL http://www.digip.org/j
     mv jansson-2.9.tar.gz /
 
 # avro-1.8.1
-RUN set -x && curl -o /tmp/avro-c-${AVRO_C_VERSION}.tar.gz -SL http://archive.apache.org/dist/avro/avro-${AVRO_C_VERSION}/c/avro-c-${AVRO_C_VERSION}.tar.gz && \
-    tar -xzf /tmp/avro-c-${AVRO_C_VERSION}.tar.gz -C /tmp && \
-    mkdir /tmp/avro-c-${AVRO_C_VERSION}/build && \
-    cd /tmp/avro-c-${AVRO_C_VERSION}/build && \
-    cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=RelWithDebInfo && \
+#http://mirrors.hust.edu.cn/apache/avro/avro-1.8.1/avro-src-1.8.1.tar.gz
+#RUN set -x && curl -o /tmp/avro-c-${AVRO_C_VERSION}.tar.gz -SL http://archive.apache.org/dist/avro/avro-${AVRO_C_VERSION}/c/avro-c-${AVRO_C_VERSION}.tar.gz && \
+COPY build/packages/avro-src-1.8.1.tar.gz /tmp
+RUN set -x && tar -xzf /tmp/avro-src-${AVRO_C_VERSION}.tar.gz -C /tmp && \
+    mkdir /tmp/avro-src-${AVRO_C_VERSION}/lang/c/build && \
+    cd /tmp/avro-src-${AVRO_C_VERSION}/lang/c/build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release -DTHREADSAFE=true && \
     make && make test && make install && \
     tar czf avro-1.8.1.tar.gz /usr/local/include/avro /usr/local/include/avro.h /usr/local/lib/libavro* /usr/local/lib/pkgconfig/avro-c.pc && \
     mv avro-1.8.1.tar.gz /

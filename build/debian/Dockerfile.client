@@ -9,5 +9,6 @@ RUN set -x && \
     tar zxf /tmp/logical_tool-ext.tar.gz -C / && \
     tar zxf /tmp/logical_tool-bin.tar.gz -C / && \
     tar zxf /tmp/pglogical-2.4.1.tar.gz -C / && \
-    rm -rf /tmp/*
+    tar zxf /tmp/curl-7.54.0.tar.gz -C / && \
+    ldconfig && rm -rf /tmp/*
 
