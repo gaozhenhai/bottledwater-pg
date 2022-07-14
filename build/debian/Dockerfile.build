@@ -1,0 +1,61 @@
+FROM gaozhenhai/postgres:14.4-debian as build
+
+ENV RDKAFKA_VERSION=1.9.0 \
+    AVRO_C_VERSION=1.8.1 \
+    JANSSON=2.9
+
+RUN fetchDeps="pkg-config gcc make cmake llvm-dev \
+        clang curl bzip2 libcurl4-openssl-dev \
+        liblzma-dev libsnappy-dev libz-dev \
+        libkrb5-dev liblz4-dev libxml2-dev \
+        libxslt-dev libedit-dev libssl-dev libpam0g-dev"; \
+    apt-get update && apt-get install -y --no-install-recommends ${fetchDeps}
+
+# jansson-2.9
+RUN set -x && curl -o /tmp/jansson-${JANSSON}.tar.bz2 -SL http://www.digip.org/jansson/releases/jansson-${JANSSON}.tar.bz2 && \
+    tar -jxf /tmp/jansson-${JANSSON}.tar.bz2 -C /tmp && \
+    cd /tmp/jansson-${JANSSON} && ./configure && make && make install && \
+    tar czf jansson-2.9.tar.gz /usr/local/include/jansson* /usr/local/lib/libjansson* /usr/local/lib/pkgconfig/jansson.pc && \
+    mv jansson-2.9.tar.gz /
+
+# avro-1.8.1
+RUN set -x && curl -o /tmp/avro-c-${AVRO_C_VERSION}.tar.gz -SL http://archive.apache.org/dist/avro/avro-${AVRO_C_VERSION}/c/avro-c-${AVRO_C_VERSION}.tar.gz && \
+    tar -xzf /tmp/avro-c-${AVRO_C_VERSION}.tar.gz -C /tmp && \
+    mkdir /tmp/avro-c-${AVRO_C_VERSION}/build && \
+    cd /tmp/avro-c-${AVRO_C_VERSION}/build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=RelWithDebInfo && \
+    make && make test && make install && \
+    tar czf avro-1.8.1.tar.gz /usr/local/include/avro /usr/local/include/avro.h /usr/local/lib/libavro* /usr/local/lib/pkgconfig/avro-c.pc && \
+    mv avro-1.8.1.tar.gz /
+
+# librdkafka-1.9.0
+#RUN set -x && curl -o /root/librdkafka-${RDKAFKA_VERSION}.tar.gz -SL https://github.com/edenhill/librdkafka/archive/v${RDKAFKA_VERSION}.tar.gz && \
+COPY build/packages/librdkafka-1.9.0.tar.gz /tmp
+RUN set -x && tar -xzf /tmp/librdkafka-${RDKAFKA_VERSION}.tar.gz -C /tmp && \
+    cd /tmp/librdkafka-${RDKAFKA_VERSION} && ./configure && make && make install && \
+    tar czf librdkafka-1.9.0.tar.gz /usr/local/include/librdkafka /usr/local/lib/librdkafka* && \
+    mv librdkafka-1.9.0.tar.gz /
+
+# Bottled logical_tool
+COPY . /tmp/logical_tool
+RUN set -x && cd /tmp/logical_tool && \
+    make clean && make && make install && \
+    tar czf logical_tool-ext.tar.gz /usr/local/lib/postgresql/logical_tool.so /usr/local/share/postgresql/extension/logical_tool* && \
+    mv logical_tool-ext.tar.gz / && \
+    cp /tmp/logical_tool/kafka/logical_tool /tmp/logical_tool/client/bwtest /usr/local/bin && \
+    tar czf logical_tool-bin.tar.gz /usr/local/bin/logical_tool /usr/local/bin/bwtest && \
+    mv logical_tool-bin.tar.gz /
+
+# pglogical-2.4.1
+#https://github.com/2ndQuadrant/pglogical/archive/refs/tags/REL2_4_1.tar.gz
+# https://github.com/2ndQuadrant/pglogical/issues/99 fix read-only variable 'stdin'
+COPY build/packages/pglogical-REL2_4_1.tar.gz /tmp
+RUN set -x && tar -xzf /tmp/pglogical-REL2_4_1.tar.gz -C /tmp && \
+    cd /tmp/pglogical-REL2_4_1 && make USE_PGXS=1 CPPFLAGS="-DPGL_NO_STDIN_ASSIGN" && make install && \
+    tar czf pglogical-2.4.1.tar.gz /usr/local/lib/postgresql/pglogical* /usr/local/share/postgresql/extension/pglogical* /usr/local/bin/pglogical_create_subscriber && \
+    mv pglogical-2.4.1.tar.gz / && \
+    rm -rf /tmp/* && rm -rf /var/lib/apt/lists/*
+
+FROM debian:bullseye-slim
+MAINTAINER Zhenhai Gao <gaozh1988@live.com>
+COPY --from=build /*.tar.gz /

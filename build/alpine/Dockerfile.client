@@ -1,0 +1,18 @@
+FROM gaozhenhai/postgres-plugins:14.4-alpine as plugins
+FROM gaozhenhai/postgres:14.4-alpine
+
+COPY --from=plugins /*.tar.gz /tmp/
+COPY build/alpine/locales/* /tmp/
+
+RUN set -x &&  apk add --no-cache jansson-dev && cd /tmp && \
+    tar zxf /tmp/avro-1.8.1.tar.gz -C / && \
+    tar zxf /tmp/librdkafka-1.9.0.tar.gz -C / && \
+    tar zxf /tmp/logical_tool-ext.tar.gz -C / && \
+    tar zxf /tmp/logical_tool-bin.tar.gz -C / && \
+    tar zxf /tmp/pglogical-2.4.1.tar.gz -C / && \
+    cp /tmp/sgerrand.rsa.pub /etc/apk/keys/ && \
+    apk add glibc-bin-2.30-r0.apk glibc-i18n-2.30-r0.apk glibc-2.30-r0.apk && \
+    cat locale.md | xargs -i /usr/glibc-compat/bin/localedef -i {} -f UTF-8 {}.UTF-8 && \
+    rm -rf /tmp/* && rm -rf /var/cache/apk/*
+
+ENV LANG=zh_CN.UTF-8 LANGUAGE=zh_CN.UTF-8
