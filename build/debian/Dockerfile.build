@@ -5,7 +5,7 @@ ENV RDKAFKA_VERSION=1.9.0 \
     JANSSON=2.9
 
 RUN fetchDeps="pkg-config gcc make cmake llvm-dev \
-        clang bzip2 liblzma-dev libz-dev \
+        clang bzip2 liblzma-dev libz-dev texinfo \
         libkrb5-dev liblz4-dev libxml2-dev \
         libxslt-dev libedit-dev libssl-dev libpam0g-dev"; \
     apt-get update && apt-get install -y --no-install-recommends ${fetchDeps}
@@ -16,14 +16,29 @@ COPY build/packages/curl-7.54.0.tar.gz /tmp
 RUN set -x && tar -xzf /tmp/curl-7.54.0.tar.gz -C /tmp && \
     cd /tmp/curl-7.54.0 && ./configure && make && make install && \
     cp src/.libs/curl  /usr/local/bin && \
-    tar czf curl-7.54.0.tar.gz /usr/local/include/curl /usr/local/lib/libcurl* /usr/local/bin/curl && \
+    tar czf curl-7.54.0.tar.gz \
+        /usr/local/include/curl \
+        /usr/local/lib/libcurl* \
+        /usr/local/bin/curl \
+        /usr/local/lib/pkgconfig/libcurl.pc && \
     mv curl-7.54.0.tar.gz /
+
+# gdb-9.2
+RUN set -x && curl -o /tmp/gdb-9.2.tar.gz -SL http://ftp.gnu.org/gnu/gdb/gdb-9.2.tar.gz && \
+    tar -xzf /tmp/gdb-9.2.tar.gz -C /tmp && \
+    mkdir /tmp/gdb-9.2/build /tmp/gdb-build && cd /tmp/gdb-9.2/build && \
+    ../configure --prefix=/tmp/gdb-build && make -j 12 && make install && \
+    cd /tmp/gdb-build && tar czf gdb-9.2.tar.gz * && \
+    mv gdb-9.2.tar.gz /
 
 # jansson-2.9
 RUN set -x && curl -o /tmp/jansson-${JANSSON}.tar.bz2 -SL http://www.digip.org/jansson/releases/jansson-${JANSSON}.tar.bz2 && \
     tar -jxf /tmp/jansson-${JANSSON}.tar.bz2 -C /tmp && \
     cd /tmp/jansson-${JANSSON} && ./configure && make && make install && \
-    tar czf jansson-2.9.tar.gz /usr/local/include/jansson* /usr/local/lib/libjansson* /usr/local/lib/pkgconfig/jansson.pc && \
+    tar czf jansson-2.9.tar.gz \
+        /usr/local/include/jansson* \
+        /usr/local/lib/libjansson* \
+        /usr/local/lib/pkgconfig/jansson.pc && \
     mv jansson-2.9.tar.gz /
 
 # avro-1.8.1
@@ -35,7 +50,10 @@ RUN set -x && tar -xzf /tmp/avro-src-${AVRO_C_VERSION}.tar.gz -C /tmp && \
     cd /tmp/avro-src-${AVRO_C_VERSION}/lang/c/build && \
     cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release -DTHREADSAFE=true && \
     make && make test && make install && \
-    tar czf avro-1.8.1.tar.gz /usr/local/include/avro /usr/local/include/avro.h /usr/local/lib/libavro* /usr/local/lib/pkgconfig/avro-c.pc && \
+    tar czf avro-1.8.1.tar.gz \
+        /usr/local/include/avro* \
+        /usr/local/lib/libavro* \
+        /usr/local/lib/pkgconfig/avro-c.pc && \
     mv avro-1.8.1.tar.gz /
 
 # librdkafka-1.9.0
@@ -43,18 +61,24 @@ RUN set -x && tar -xzf /tmp/avro-src-${AVRO_C_VERSION}.tar.gz -C /tmp && \
 COPY build/packages/librdkafka-1.9.0.tar.gz /tmp
 RUN set -x && tar -xzf /tmp/librdkafka-${RDKAFKA_VERSION}.tar.gz -C /tmp && \
     cd /tmp/librdkafka-${RDKAFKA_VERSION} && ./configure && make && make install && \
-    tar czf librdkafka-1.9.0.tar.gz /usr/local/include/librdkafka /usr/local/lib/librdkafka* && \
+    tar czf librdkafka-1.9.0.tar.gz \
+        /usr/local/include/librdkafka \
+        /usr/local/lib/librdkafka* \
+        /usr/local/lib/pkgconfig/rdkafka* && \
     mv librdkafka-1.9.0.tar.gz /
 
 # Bottled logical_tool
 COPY . /tmp/logical_tool
 RUN set -x && cd /tmp/logical_tool && \
     make clean && make && make install && \
-    tar czf logical_tool-ext.tar.gz /usr/local/lib/postgresql/logical_tool.so /usr/local/share/postgresql/extension/logical_tool* && \
-    mv logical_tool-ext.tar.gz / && \
     cp /tmp/logical_tool/kafka/logical_tool /tmp/logical_tool/client/bwtest /usr/local/bin && \
-    tar czf logical_tool-bin.tar.gz /usr/local/bin/logical_tool /usr/local/bin/bwtest && \
-    mv logical_tool-bin.tar.gz /
+    tar czf logical_tool.tar.gz \
+        /usr/local/bin/bwtest \
+        /usr/local/bin/logical_tool \
+        /usr/local/lib/postgresql/logical_tool.so \
+        /usr/local/lib/postgresql/bitcode/logical_tool* \
+        /usr/local/share/postgresql/extension/logical_tool* && \
+    mv logical_tool.tar.gz /
 
 # pglogical-2.4.1
 #https://github.com/2ndQuadrant/pglogical/archive/refs/tags/REL2_4_1.tar.gz
@@ -62,7 +86,11 @@ RUN set -x && cd /tmp/logical_tool && \
 COPY build/packages/pglogical-REL2_4_1.tar.gz /tmp
 RUN set -x && tar -xzf /tmp/pglogical-REL2_4_1.tar.gz -C /tmp && \
     cd /tmp/pglogical-REL2_4_1 && make USE_PGXS=1 CPPFLAGS="-DPGL_NO_STDIN_ASSIGN" && make install && \
-    tar czf pglogical-2.4.1.tar.gz /usr/local/lib/postgresql/pglogical* /usr/local/share/postgresql/extension/pglogical* /usr/local/bin/pglogical_create_subscriber && \
+    tar czf pglogical-2.4.1.tar.gz \
+        /usr/local/lib/postgresql/pglogical* \
+        /usr/local/share/postgresql/extension/pglogical* \
+        /usr/local/bin/pglogical_create_subscriber \
+        /usr/local/lib/postgresql/bitcode/pglogical* && \
     mv pglogical-2.4.1.tar.gz / && \
     rm -rf /tmp/* && rm -rf /var/lib/apt/lists/*
 

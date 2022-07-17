@@ -3,12 +3,12 @@ FROM gaozhenhai/postgres:14.4-debian
 
 COPY --from=plugins /*.tar.gz /tmp/
 RUN set -x && \
+    tar zxf /tmp/curl-7.54.0.tar.gz -C / && \
     tar zxf /tmp/jansson-2.9.tar.gz -C / && \
     tar zxf /tmp/avro-1.8.1.tar.gz -C / && \
     tar zxf /tmp/librdkafka-1.9.0.tar.gz -C / && \
-    tar zxf /tmp/logical_tool-ext.tar.gz -C / && \
-    tar zxf /tmp/logical_tool-bin.tar.gz -C / && \
+    tar zxf /tmp/logical_tool.tar.gz -C / && \
     tar zxf /tmp/pglogical-2.4.1.tar.gz -C / && \
-    tar zxf /tmp/curl-7.54.0.tar.gz -C / && \
+    tar zxf /tmp/gdb-9.2.tar.gz -C /usr/local/ && \
     ldconfig && rm -rf /tmp/*
 
