@@ -5,6 +5,8 @@
 #include "postgres.h"
 #include "access/htup.h"
 #include "utils/rel.h"
+#include "access/relation.h"
+#include "utils/lsyscache.h"
 
 #define GENERATED_SCHEMA_NAMESPACE "com.martinkl.logical_tool.dbschema"
 #define PREDEFINED_SCHEMA_NAMESPACE "com.martinkl.logical_tool.datatypes"
