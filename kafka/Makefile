@@ -3,7 +3,7 @@ EXECUTABLE=logical_tool
 STATICLIB=../client/liblogical_tool.a
 
 PG_CFLAGS = -I$(shell pg_config --includedir) -I$(shell pg_config --includedir-server) -I$(shell pg_config --pkgincludedir)
-PG_LDFLAGS = -L$(shell pg_config --libdir) -lpq -lpgport -lavro
+PG_LDFLAGS = -L$(shell pg_config --libdir) -L$(shell pg_config --pkglibdir) -lpq -lpgport -lavro
 
 KAFKA_CFLAGS =
 KAFKA_LDFLAGS = -lrdkafka -lz -lpthread # TODO -lrt needed on Linux for clock_gettime, but not on OSX?

@@ -8,7 +8,7 @@ PG_CPPFLAGS += $(AVRO_CFLAGS) -std=c99
 SHLIB_LINK += $(AVRO_LDFLAGS)
 
 OBJS = io_util.o error_policy.o logdecoder.o oid2avro.o schema_cache.o protocol.o protocol_server.o snapshot.o
-DATA = logical_tool--0.1.sql
+DATA = logical_tool--2.0.0.sql
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
